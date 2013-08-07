@@ -1,7 +1,7 @@
 all:
 	#python main.py
 	#python main.py --nodownload
-	python main.py --nodownload --onlywithdividend --onlywithask --days 30 --daysoffset 0
+	python main.py --onlywithdividend --onlywithask --days 30 --daysoffset 0 --nodownload 
 
 .PHONY: clean
 
