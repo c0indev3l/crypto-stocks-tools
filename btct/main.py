@@ -32,6 +32,7 @@ import pandas as pd
 import numpy as np
 import datetime
 import dateutil.parser
+import pytz
 
 class API_Request:
     def __init__(self, base_path, api_url, values={}, api_type='json', flag_download=True):
@@ -126,7 +127,7 @@ class API_Request_get_dividend_for_security(API_Request):
     def convert_to_DataFrame(self):
         #print(self.data)
         
-        self.generated = datetime.datetime.fromtimestamp(self.data['generated'])
+        self.generated = datetime.datetime.fromtimestamp(self.data['generated'], tz=pytz.UTC)
 
         try:
             print("generated={generated}".format(generated=self.generated))
@@ -138,7 +139,7 @@ class API_Request_get_dividend_for_security(API_Request):
                 
                 # convert type
                 #self.df['process_time'] = self.df['process_time'].map(int).map(datetime.datetime.fromtimestamp) #convert timestamp to datetime
-                self.df['process_time'] = self.df['process_time'].map(lambda s: datetime.datetime.fromtimestamp(int(s))) #convert timestamp to datetime
+                self.df['process_time'] = self.df['process_time'].map(lambda s: datetime.datetime.fromtimestamp(int(s), tz=pytz.UTC)) #convert timestamp to datetime
                 self.df['amount'] = self.df['amount'].map(float)
                 self.df['id'] = self.df['id'].map(int)
                 self.df['shares_paid'] = self.df['shares_paid'].map(int)
