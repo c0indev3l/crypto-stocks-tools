@@ -32,6 +32,7 @@ import pandas as pd
 import numpy as np
 import datetime
 import dateutil.parser
+import pytz
 
 class API_Request:
     def __init__(self, base_path, api_url, values={}, api_type='json', flag_download=True):
@@ -121,12 +122,13 @@ class API_Request_get_dividend_for_security(API_Request):
         api_url = "dividendHistory/{ticker}".format(ticker=ticker)
         values = {}
         
-        API_Request.__init__(self, args.basepath, api_url, values, api_type='json', flag_download=flag_download)
+        API_Request.__init__(self, base_path, api_url, values, api_type='json', flag_download=flag_download)
 
     def convert_to_DataFrame(self):
         #print(self.data)
         
-        self.generated = datetime.datetime.fromtimestamp(self.data['generated'])
+        self.generated = datetime.datetime.fromtimestamp(self.data['generated'], tz=pytz.UTC)
+        #self.generated = pd.to_datetime(self.data['generated'])
 
         try:
             print("generated={generated}".format(generated=self.generated))
@@ -138,10 +140,17 @@ class API_Request_get_dividend_for_security(API_Request):
                 
                 # convert type
                 #self.df['process_time'] = self.df['process_time'].map(int).map(datetime.datetime.fromtimestamp) #convert timestamp to datetime
-                self.df['process_time'] = self.df['process_time'].map(lambda s: datetime.datetime.fromtimestamp(int(s))) #convert timestamp to datetime
-                self.df['amount'] = self.df['amount'].map(float)
-                self.df['id'] = self.df['id'].map(int)
-                self.df['shares_paid'] = self.df['shares_paid'].map(int)
+                #self.df['process_time'] = self.df['process_time'].map(lambda s: datetime.datetime.fromtimestamp(int(s), tz=pytz.UTC)) #convert timestamp to datetime
+                #self.df['process_time2'] = self.df['process_time']
+                self.df['process_time'] = pd.to_datetime(self.df['process_time'].map(int)*int(1e9))
+                
+                self.df['amount'] = self.df['amount'].astype(float)
+                self.df['id'] = self.df['id'].astype(int)
+                self.df['shares_paid'] = self.df['shares_paid'].astype(int)
+
+                #self.df['amount'] = self.df['amount'].map(float)
+                #self.df['id'] = self.df['id'].map(int)
+                #self.df['shares_paid'] = self.df['shares_paid'].map(int)
                 
                 # filter to keep only COMPLETE dividend
                 self.df = self.df[self.df['status']=='COMPLETE']
@@ -179,7 +188,95 @@ class API_Request_get_dividend_for_security(API_Request):
 
         self.dividends_nb = len(self.df)
 
+class API_Request_get_tradeHistory_for_security(API_Request):
+    def __init__(self, base_path, ticker, days=30, daysoffset=0, api_type='json', flag_download=True):
+        self.ticker = ticker
+        self.days = days
+        self.daysoffset = daysoffset
+        
+        api_url = "tradeHistory/{ticker}?range=all".format(ticker=ticker)
+        values = {}
+        
+        API_Request.__init__(self, base_path, api_url, values, api_type='json', flag_download=flag_download)
 
+    def convert_to_DataFrame(self):
+        self.df = pd.DataFrame(self.data)
+
+    def calculate(self):
+        #self.df['timestamp'] = self.df['timestamp'].map(lambda s: datetime.datetime.fromtimestamp(int(s), tz=pytz.UTC)) #convert timestamp to datetime
+        #self.df['timestamp'] = pd.to_datetime(self.df['timestamp']*int(1e9))
+        #self.df['timestamp'] = self.df['timestamp'].map(int)
+        self.df['timestamp'] = pd.to_datetime(self.df['timestamp'].map(int)*int(1e9))
+    
+        #self.df['amount'] = self.df['amount'].map(float)
+        #self.df['quantity'] = self.df['quantity'].map(int)
+        #self.df['ticker'] = self.df['ticker'].map(str)
+        #self.df['trade_id'] = self.df['trade_id'].map(int)
+        #self.df['type'] = self.df['type'].map(str)
+
+        self.df['amount'] = self.df['amount'].astype(float)
+        self.df['quantity'] = self.df['quantity'].astype(int)
+        self.df['ticker'] = self.df['ticker'].astype(str)
+        self.df['trade_id'] = self.df['trade_id'].astype(int)
+        self.df['type'] = self.df['type'].astype(str)
+
+    
+        # Several trade have same timestamp
+    
+        # sol 1
+        # sort ascending trade_id
+        # add 1 millisecond for each trade
+        # == procedural ==
+        #self.df = self.df.sort('trade_id', ascending=True)
+        #dt_prev = None
+        #for i in range(len(self.df)):
+        #    dt = self.df['timestamp'][i]
+        #    if dt == dt_prev and i>0:
+        #        self.df['timestamp'][i] = self.df['timestamp'][i-1] + datetime.timedelta(microseconds=1)
+        #        #self.df['timestamp'][i] = self.df['timestamp'][i-1] + np.timedelta64(1, 'ns')
+        #        # ValueError: Cannot add integral value to Timestamp without offset.
+        #    dt_prev = dt
+        #self.df = self.df.set_index('timestamp', verify_integrity=True, drop=True)   
+        #return(self.df)
+    
+        # sol 2
+        # sort ascending trade_id
+        # add 1 millisecond for each trade
+        # == vectorized code ==
+        #self.df = self.df.sort('trade_id', ascending=True)
+        #v = np.where(self.df['timestamp'].shift(1) == self.df['timestamp'], 1, np.nan)
+        #n = np.isnan(v)
+        #a = ~n
+        #c = np.cumsum(a.astype(int))
+        #d = np.diff(np.concatenate(([0], c[n])))
+        #v[n] = -d
+        #self.df['timestamp'] = self.df['timestamp'] + np.cumsum(v).astype(int)*datetime.timedelta(milliseconds=1)
+        #self.df = self.df.set_index('timestamp', verify_integrity=True, drop=True)   
+        #return(self.df)
+    
+        # sol 3
+        # group-by timestamp
+        # average price => Sum(quantity*amount) / Sum(quantity)
+        self.df['amount*quantity'] = self.df['amount'] * self.df['quantity']
+        self.df = self.df[['timestamp', 'amount*quantity', 'quantity']].groupby('timestamp', sort=True).sum()
+        self.df['amount'] = self.df['amount*quantity'] / self.df['quantity']
+        self.df = self.df[['quantity', 'amount']]
+        return(self.df)
+    
+    def get_price(self):
+        dt_now = datetime.datetime.utcnow()
+        dt1 = dt_now - datetime.timedelta(days=self.days) - datetime.timedelta(days=self.daysoffset)
+        amount_resampled = self.df['amount'].resample('1d', how='mean')
+        return(amount_resampled[dt1.date()])
+
+    def interpolate(ts, target):
+        # http://stackoverflow.com/questions/18182030/interpolate-only-one-value-of-a-timeserie-using-python-pandas
+        ts1 = ts.sort_index()
+        b = (ts1.index > target).argmax() # index of first entry after target
+        s = ts1.iloc[b-1:b+1]
+        # Insert empty value at target time.
+        s = s.reindex(pd.to_datetime(list(s.index.values) + [pd.to_datetime(target)]))
+        return s.interpolate('time').loc[target]
 
 class API_Request_get_list_of_securities(API_Request):
     def __init__(self, base_path, api_type='json', flag_download=True):
@@ -211,9 +308,12 @@ class API_Request_get_list_of_securities(API_Request):
         #print(self.df)
         #print(self.df.head())
         
-        self.df['lowest_ask'] = np.nan
+        #self.df['lowest_ask'] = np.nan
         self.df['dividend_per_share'] = np.nan
         self.df['dividends_nb'] = 0
+
+        #self.df['last_price'] = np.nan
+        self.df['price_old'] = np.nan
 
         for ticker in self.tickers():
             print("="*10 + " " + ticker + " " + "="*10)
@@ -232,6 +332,15 @@ class API_Request_get_list_of_securities(API_Request):
             #print("dividend_per_share={val}".format(val=dividend_per_share))
             self.df['dividend_per_share'][ticker] = dividend_for_security.dividend_per_share_total
             self.df['dividends_nb'][ticker] = dividend_for_security.dividends_nb
+
+            print('')
+            
+            try:
+                tradeHistory_for_security = API_Request_get_tradeHistory_for_security(base_path, ticker, days, daysoffset, api_type, flag_download)
+                tradeHistory_for_security.update()
+                self.df['price_old'][ticker] = tradeHistory_for_security.get_price()
+            except:
+            	print("Can't download trade history for {ticker}".format(ticker=ticker))
             
             print('')
 
@@ -242,9 +351,16 @@ class API_Request_get_list_of_securities(API_Request):
         self.df['currency'] = 'LTC'
         
         # Calculate
-        self.df['SpreadRelPC'] = 200.0 * (self.df['ask'] - self.df['bid']) / (self.df['ask'] + self.df['bid'])        
-        self.df['DividendPerPricePC'] = self.df['dividend_per_share']/self.df['ask'] * 100.0
+        self.df['SpreadRelPC'] = 200.0 * (self.df['ask'] - self.df['bid']) / (self.df['ask'] + self.df['bid'])
+        
+        #self.df['DividendPerPricePC'] = self.df['dividend_per_share']/self.df['ask'] * 100.0
+        self.df['DividendPerPricePC'] = self.df['dividend_per_share']/self.df['price_old'] * 100.0
         self.df['DividendPerPricePC'] = self.df['DividendPerPricePC'].fillna(0.0)
+
+        self.df['price_delta'] = self.df['last_price'] - self.df['price_old']
+        self.df['price_delta_rel'] = self.df['price_delta'] / self.df['price_old'] * 100.0
+        self.df['price_delta_with_div'] = self.df['price_delta'] + self.df['dividend_per_share']
+        self.df['price_delta_with_div_rel'] = self.df['price_delta_with_div'] / self.df['price_old'] * 100.0
 
         # URL
         self.df['url'] = self.df.index
@@ -260,9 +376,14 @@ class API_Request_get_list_of_securities(API_Request):
             self.df = self.df[self.df['SpreadRelPC'] <= float(args.maxspreadrel)]
         
         # Sort
-        self.df = self.df.sort('DividendPerPricePC', ascending=True)
+        #self.df = self.df.sort('DividendPerPricePC', ascending=True)
+        #self.df = self.df[self.df['price_delta_with_div_rel'].notnull()]
+        #self.df['price_delta_with_div_rel'] = self.df['price_delta_with_div_rel'].fillna(-np.infty)
+        col = 'price_delta_with_div_rel'
+        self.df[col] = self.df[col].fillna(-100)
+        self.df = self.df.sort(col, ascending=True)
         
-        df = self.df[['url', 'currency', 'ask', 'bid', 'dividends_nb', 'dividend_per_share', 'SpreadRelPC', 'DividendPerPricePC', 'type']]
+        df = self.df[['url', 'currency', 'ask', 'bid', 'dividends_nb', 'dividend_per_share', 'SpreadRelPC', 'type', 'price_old', 'DividendPerPricePC', 'price_delta_rel', 'price_delta_with_div_rel']]
         print(df)
 
         #filename = os.path.join(self.base_path, "data_out/data.csv")
@@ -304,7 +425,7 @@ class API_Request_get_list_of_securities(API_Request):
             raise(Exception("Can't convert to DataFrame"))
         
         # convert to float
-        cols = ['24h_avg', '24h_high', '24h_low', '30d_avg', '30d_high', '30d_low', '7d_avg', '7d_high', '7d_low', 'ask', 'bid', 'last_price', 'total_vol']
+        cols = ['24h_avg', '24h_high', '24h_low', '30d_avg', '30d_high', '30d_low', '7d_avg', '7d_high', '7d_low', 'ask', 'bid', 'last_24h_avg', 'last_price', 'total_vol']
         for col in cols:
             self.df[col] = self.df[col].map(self.conv_to_float)
         

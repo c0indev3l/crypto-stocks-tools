@@ -2,7 +2,7 @@
 DIR=/home/pi/bitcoin/stocks/ltc-global/
 
 function main(){
-                python ${DIR}main.py --onlywithdividend --onlywithask --days 30 --daysoffset 0 #--maxspreadrel 30
+                python ${DIR}main.py --days 30 --daysoffset 0 #--maxspreadrel 30 --onlywithdividend --onlywithask
 }
 
 #DELAY=3600

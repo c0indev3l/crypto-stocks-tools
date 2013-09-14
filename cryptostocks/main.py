@@ -35,7 +35,7 @@ import requests
 import json
 import pandas as pd
 import numpy as np
-import dateutil.parser
+#import dateutil.parser
 import datetime
 import pytz
 
@@ -153,11 +153,16 @@ class API_Request_get_dividend_for_security(API_Request):
             raise(Exception("return_code!=0"))
 
         # convert unicode to float
-        self.df['dividend_per_share'] = self.df['dividend_per_share'].map(float)
-        self.df['timestamp'] = self.df['timestamp'].map(lambda s: dateutil.parser.parse(s))
+        self.df['dividend_per_share'] = self.df['dividend_per_share'].astype(float)
+        
+        #self.df['timestamp'] = self.df['timestamp'].map(lambda s: dateutil.parser.parse(s))
+        #self.df['timestamp'] = self.df['timestamp'].map(lambda s: datetime.datetime.fromtimestamp(int(s), tz=pytz.UTC)) #convert timestamp to datetime
+        self.df['timestamp'] = pd.to_datetime(self.df['timestamp'])
 
         # filter to keep only dividend from now - daysoffset to now - days - daysoffset
-        dt2 = datetime.datetime.now().replace(tzinfo=pytz.UTC) - datetime.timedelta(days=self.daysoffset)
+        #dtnow = datetime.datetime.now().replace(tzinfo=pytz.UTC)
+        dtnow = datetime.datetime.utcnow()
+        dt2 = dtnow - datetime.timedelta(days=self.daysoffset)
         dt1 = dt2 - datetime.timedelta(days=self.days)
         print("dividends from {dt1} to {dt2}".format(dt1=dt1, dt2=dt2))
         self.df = self.df[(self.df['timestamp']>=dt1) & (self.df['timestamp']<=dt2)]
@@ -193,8 +198,10 @@ class API_Request_get_list_of_securities(API_Request):
         self.df.index = self.df['ticker'] # use ticker as index
         #self.df = self.df.set_index(self.df['ticker'])
         
+        #['ticker', 'name', 'currency', 'number_public_shares', 'highest_bid', 'lowest_ask', 'last_price', 'volume_24h', 'volume_7d', 'volume_30d']
         self.df['lowest_ask'] = np.nan
         self.df['highest_bid'] = np.nan
+        
         self.df['dividend_per_share'] = np.nan
         self.df['dividends_nb'] = 0
                 
@@ -265,6 +272,7 @@ class API_Request_get_list_of_securities(API_Request):
         
         # Calculate
         self.df['SpreadRelPC'] = 200.0 * (self.df['ask'] - self.df['bid']) / (self.df['ask'] + self.df['bid'])
+        
         self.df['DividendPerPricePC'] = self.df['dividend_per_share']/self.df['ask'] * 100.0
         self.df['DividendPerPricePC'] = self.df['DividendPerPricePC'].fillna(0.0)
 
@@ -288,10 +296,9 @@ class API_Request_get_list_of_securities(API_Request):
         # Sort
         self.df = self.df.sort('DividendPerPricePC', ascending=True)
         
-        #'currency', 'name', 'ticker', 'lowest_ask', 'dividend_per_share', 'dividends_nb', 'DividendPerPricePC', 'url'
-        #df = self.df[['url', 'ask', 'dividends_nb', 'dividend_per_share', 'DividendPerPricePC']]
-        #print(df)
-        print(self.df)
+        df = self.df[['name', 'currency', 'ask', 'bid', 'dividends_nb', 'dividend_per_share', 'SpreadRelPC', 'DividendPerPricePC']]
+        print(df)
+        
         filename = os.path.join(self.base_path, "data_out/data.xls")
         self.df.to_excel(filename)
         
