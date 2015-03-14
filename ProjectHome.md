@@ -1,0 +1,1 @@
+crypto-stocks-tools sorts securities from crypto stocks places (Crypto::Stocks, Litecoin Global Stock Exchange...) depending of dividends ever paid.
